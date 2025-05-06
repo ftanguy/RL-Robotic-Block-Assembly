@@ -5,6 +5,7 @@ Wrapps the AssemblyEnv in a gym interface so that it can be used with stable_bas
 
 import gymnasium as gym
 import numpy as np
+import torch
 import logging
 
 import matplotlib.pyplot as plt
@@ -37,9 +38,8 @@ class BlockAssemblyGym(gym.Env):
         self.action_space = gym.spaces.Discrete(self.max_actions)
 
         h, w = self.backend.img_size
-        self.observation_space = gym.spaces.Box(0, 1, shape=(h * w,), dtype=np.float32)
+        self.observation_space = gym.spaces.Box(0, 1, shape=(h * w * 2,), dtype=np.float32)
 
-        self.logger.info("Init")
 
     def _refresh_actions(self):
         acts = self.backend.available_actions(num_block_offsets=self.num_block_offsets)
@@ -58,18 +58,26 @@ class BlockAssemblyGym(gym.Env):
         self._mask[len(acts) :] = False
         self._mask[self.max_actions - 1] = True 
 
+    def action_masks(self):
+        return self.get_action_mask()
+
     def get_action_mask(self):
         if not self._mask.any() : 
             self.logger.debug("Empty Mask")
         return self._mask
 
+    def _get_obs(self):
+        img_flat   = self.backend.state_feature.flatten()
+        goal_flat  = self.backend.reward_feature.flatten()
+        return torch.cat([img_flat, goal_flat]).numpy().astype(np.float32)
+
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
-        #self.task = self.make_task(self.task_name,np.random.randint(1,5))
-        #self.backend = AssemblyEnv(self.task)
+        self.task = self.make_task(self.task_name,np.random.randint(1,5))
+        self.backend = AssemblyEnv(self.task, level=self.logger.level)
         self.backend.reset()
         self._refresh_actions()
-        obs = self.backend.state_feature.flatten().numpy().astype(np.float32)
+        obs = self._get_obs()
         return obs, {}
 
     def step(self, index : int):
@@ -79,37 +87,68 @@ class BlockAssemblyGym(gym.Env):
         
         if index == (self.max_actions - 1):
             self.logger.debug("Noop chosen - ending episode")
-            obs = self.backend.state_feature.flatten().numpy().astype(np.float32)
+            obs = self._get_obs()
             self._refresh_actions()
             return obs, 0.0, True, False, {}   # terminate with zero reward
 
         if not self._mask[index]:
-            obs = self.backend.state_feature.flatten().numpy().astype(np.float32)
+            obs = self._get_obs()
             self._refresh_actions()
             self.logger.warning("Invalid action choice")
             return obs, -1.0, False, False, {}
         
         if self._actions is None:
+            obs = self._get_obs()
             self.logger.warning("No action available")
             return obs, 0.0, True, False, {}
 
         action = self._actions[index]
         obs, reward, terminated = self.backend.step(action)
+        obs = self._get_obs()
         self._refresh_actions()
 
         truncated = False  
-        obs = obs.flatten().numpy().astype(np.float32)
+
         if self.render_enabled:
             self.render()
         return obs, reward, terminated, truncated, {}
 
     def render(self):
         from rendering import plot_assembly_env
-        if self.fig is None or self.ax is None:
-            self.fig, self.ax = plt.subplots()
-        self.ax.clear()
-        plot_assembly_env(self.backend, fig=self.fig, ax=self.ax, task=self.task)
+        
+        if self.fig is None:
+            self.fig, axd = plt.subplot_mosaic("ABC", figsize=(10, 4))
+            self.ax_geom, self.ax_state, self.ax_reward = axd["A"], axd["B"], axd["C"]
+
+            self.ax_geom.set_title("Assembly")
+            self.ax_state.set_title("State")
+            self.ax_reward.set_title("Reward")
+
+            for ax in (self.ax_state, self.ax_reward):
+                ax.set_xticks([]); ax.set_yticks([])
+
+            # --- create the image artists with correct 2‑D shape ----------
+            img0 = self.backend.state_feature.squeeze(0).numpy()   # (64,64)
+            self.img_state  = self.ax_state.imshow(
+                img0, cmap="gray", interpolation="none"
+            )
+            self.img_reward = self.ax_reward.imshow(
+                self.backend.reward_feature.numpy(),
+                cmap="viridis", interpolation="none"
+            )
+
+        # -------- update each frame ---------------------------------------
+        self.ax_geom.clear()
+        plot_assembly_env(self.backend, fig=self.fig, ax=self.ax_geom, task=self.task)
+
+        # state feature: squeeze to 2‑D
+        self.img_state.set_data(self.backend.state_feature.squeeze(0).numpy())
+        self.img_reward.set_data(self.backend.reward_feature.numpy())  
+
+        self.fig.canvas.draw_idle()
         plt.pause(0.001)
+
+
 
     def close(self):
         pass

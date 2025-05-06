@@ -1,12 +1,12 @@
-policy: MlpPolicy       # keep default
-n_steps: 16             # collect 16 transitions → update
-batch_size: 16          # must divide n_steps
-n_epochs: 4             # a bit lower than default (10) because batch is tiny
-gamma: 0.90             # less discounting = focus on near‑term reward
-gae_lambda: 0.90        # faster bias/variance trade‑off for short eps
-learning_rate: 0.0003     # constant lr works fine at this scale
+policy: MlpPolicy   
+n_steps: 16            
+batch_size: 16          
+n_epochs: 4             
+gamma: 0.90             
+gae_lambda: 0.90        
+learning_rate: 0.0003     
 clip_range: 0.2
-ent_coef: 0.01          # encourage exploration
+ent_coef: 0.01          
 vf_coef: 0.5
 max_grad_norm: 0.5
-target_kl: 0.03         # early‑stop inside an update if policy jumps
+target_kl: 0.03         

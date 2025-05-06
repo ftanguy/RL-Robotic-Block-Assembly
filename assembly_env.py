@@ -70,9 +70,11 @@ class AssemblyEnv(CRA_Assembly):
         self.add_block(Floor(xlim=self.xlim))
         self.state_feature = torch.zeros(self.img_size)  # Reset image
         self.num_targets_reached = 0
+        self.reward_feature = self.get_reward_features(sigma=0.5)
         
 
     def get_reward_features(self, sigma=1):
+        self.logger.debug("Calculating reward features")
         reward_features = np.zeros(self.img_size)
         if len(self.task.targets) == 0:
             return torch.zeros(self.img_size)
