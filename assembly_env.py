@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import random
 from dataclasses import dataclass
+import logging
 
 from compas.geometry import Frame
 from compas_cra.datastructures import CRA_Assembly
@@ -14,6 +15,8 @@ from geometry import align_blocks
 from rendering import render_block_2d
 
 from stability import is_stable_rbe
+
+from utils.logger_utils import get_logger
 
 
 
@@ -37,8 +40,10 @@ def gaussian(loc, xlim, zlim, img_size=(512,512), sigma=2):
 
 class AssemblyEnv(CRA_Assembly):
 
-    def __init__(self, task, max_blocks=10, xlim=(-5, 5), zlim=(0, 10), img_size=(64, 64), mu=0.8, density=1.0):
+    def __init__(self, task, max_blocks=10, xlim=(-5, 5), zlim=(0, 10), img_size=(64, 64), mu=0.8, density=1.0, level = logging.INFO):
         super().__init__()
+        self.logger = get_logger(__name__)
+        self.logger.setLevel(level)
         self.task = task
         self.xlim = xlim
         self.zlim = zlim
@@ -60,10 +65,12 @@ class AssemblyEnv(CRA_Assembly):
 
     def reset(self, obstacles=None):
         self.delete_blocks()
-        self.graph._max_node = -1
-        # self.blocks = {}
-        # self._add_support_block()
+        self.block_list = []
         self.obstacles = []
+        self.add_block(Floor(xlim=self.xlim))
+        self.state_feature = torch.zeros(self.img_size)  # Reset image
+        self.num_targets_reached = 0
+        
 
     def get_reward_features(self, sigma=1):
         reward_features = np.zeros(self.img_size)
@@ -119,16 +126,19 @@ class AssemblyEnv(CRA_Assembly):
         self.compute_interfaces()
 
     def step(self, action : Action):
+        """
+        returns: obs, reward, terminated
+        """
         # create and add block to environment
         new_block = self.create_block(action)
         if self.collision(new_block):
-            print("Collision")
-            return None, torch.tensor(0.), True
+            self.logger.debug("Collision")
+            return self.state_feature.clone(), torch.tensor(-0.0), True
         
         self.add_block(new_block)
         if not self.is_stable():
-            print("Unstable")
-            return None, torch.tensor(0.), True
+            self.logger.debug("Unstable")
+            return self.state_feature.clone(), torch.tensor(-0.0), True
         
         action_feature = render_block_2d(
             new_block, 
@@ -137,7 +147,7 @@ class AssemblyEnv(CRA_Assembly):
             img_size=self.img_size
         ).unsqueeze(0)
         
-        self.state_features = torch.minimum(
+        self.state_feature = torch.minimum(
                 self.state_feature + action_feature, 
                 torch.tensor(1.0)
             )
@@ -148,15 +158,18 @@ class AssemblyEnv(CRA_Assembly):
         
         reward = torch.sum(action_feature * self.reward_feature, dim=(-1, -2)).flatten()[0]
         terminated = (len(self.block_list)-1 >= self.max_blocks) | self.num_targets_reached == len(self.task.targets)
+        self.logger.debug(f"Is terminated {terminated}")
         
         return self.state_feature, reward, terminated
-
+    
     def collision(self, new_block):
         return any(new_block.intersects_2d(b) for b in self.block_list + self.task.obstacles)
     
     def available_actions(self, floor_positions=None, num_block_offsets=1, overlap=0.2):
         floor_positions = floor_positions or self.task.floor_positions
         actions = []
+        #print("Num blocks:", len(self.block_list))
+        #print("Available actions being computed...")
         
         for i, block in enumerate(self.block_list):
             for target_face in block.receiving_faces_2d():
@@ -174,7 +187,8 @@ class AssemblyEnv(CRA_Assembly):
                             
                         for offset_x in offsets:
                             actions.append(Action(i, target_face, shape.block_id, face, offset_x))
-                            
+        
+        if len(actions) < 1 : self.logger.warning("No Action is available")
         return actions
     
     def random_action(self, num_block_offsets=1, non_colliding=True, stable=True):

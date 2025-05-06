@@ -1,12 +1,12 @@
 import matplotlib.pyplot as plt
 from rendering import plot_assembly_env, plot_task
 #from tree import  ExtendedTree, Action
-from tasks import Bridge
+import tasks as ts
 from assembly_env import AssemblyEnv
 from blocks import Floor
 
 
-task = Bridge(num_stories=2)
+task = ts.Bridge(num_stories=3)
 
 env = AssemblyEnv(task)
 done = False
@@ -18,11 +18,14 @@ while not done:
         break
     print(action)
     obs, r, done = env.step(action)
+    print(f"obs: {obs}")
+    print(f"obs shape: {obs.size()}")
+    print(f"obs sum: {obs.sum()}")
     rewards += r
     print(env.is_stable())
     
 print(rewards)
 
-plot_assembly_env(env, task=task)
+plot_assembly_env(env, task=task,plot_forces=False)
 plt.axis('equal')
 plt.show()
