@@ -76,7 +76,7 @@ def main():
     # GIF recording
     record_gif: bool = bool(args.gif)
     gif_path: Path | None = (
-        Path(args.gif) if isinstance(args.gif, str)          
+        Path("Images") / args.gif if isinstance(args.gif, str)          
         else Path("Images/rollout.gif")                    
     ) if record_gif else None
     frames: list[np.ndarray] = []
