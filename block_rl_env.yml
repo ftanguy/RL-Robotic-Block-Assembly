@@ -217,6 +217,7 @@ dependencies:
       - grpcio==1.48.2
       - gymnasium==1.1.1
       - idna==3.10
+      - imageio==2.37.0
       - jsonschema==4.23.0
       - jsonschema-specifications==2025.4.1
       - markdown-it-py==3.0.0

@@ -114,7 +114,7 @@ def main():
 
         if record_gif and frames:
             gif_path.parent.mkdir(parents=True, exist_ok=True)
-            imageio.mimsave(gif_path, frames, fps=10)
+            imageio.mimsave(gif_path, frames, fps=3, loop=0)
             logger.info(f"GIF saved to {gif_path} ({len(frames)} frames)")
 
 # ------------------------------------------------------------------------
