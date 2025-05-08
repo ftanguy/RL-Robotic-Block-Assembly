@@ -61,6 +61,15 @@ python train.py --task bridge --algo maskppo --timesteps 100000 --progress-bar -
 python train.py --task bridge --algo maskppo --timesteps 100000 --progress-bar --config configs/maskppo.yaml  -m runs/bridge_maskppo_0506204539/best_model/best_model.zip
 ```
 
+**Monitor training**
+To monitor the training you can run the following command in the main directory.
+
+```bash
+tensorboard --logdir runs
+```
+
+![](Images/training_plots.png)
+
 ### `run_policy.py`
 
 Roll out a **trained policy** for qualitative inspection.
@@ -88,6 +97,10 @@ Here is an example of a rollout
 Other SB3 algorithms (SAC, A2C…) will work, but the policy network must be adapted to flat image inputs.
 
 ---
+
+## Things to maybe change/Improve
+- Change the observations to include obstacles (maybe change the rl network to cnn and have 3 channels (obstacles,placed blocks,reward features))
+- Change how the agent interacts with the actions (right now it choose an index in the list of possible actions but it doesnt now what the effect will be/what it is choosing) -> maybe make an action encoder? Or add action to observation space?
 
 ## Project Ideas to implement (at least 1)
 
