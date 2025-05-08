@@ -12,3 +12,5 @@ Ideas to focus on (pick at least 1):
 - Minimise the number of blocks used by the policy to complete the episode
 - Use new types of block geometries
 - Train a policy that is robust to noise injected when placing a block (important for sim2real transition to a real robot).
+
+
