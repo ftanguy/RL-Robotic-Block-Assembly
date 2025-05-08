@@ -2,7 +2,7 @@
 - plot_assembly_env(env, task=task, plot_forces=True) -> not working
 - Observations features instead of feature
 - Observations has only posed cubes and not the walls or target
-- 
+- Walls could be important to add
 
 - Actions space? agent has no info what the first action is (maybe give action space as obs?)
 

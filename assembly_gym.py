@@ -38,7 +38,7 @@ class BlockAssemblyGym(gym.Env):
         self.action_space = gym.spaces.Discrete(self.max_actions)
 
         h, w = self.backend.img_size
-        self.observation_space = gym.spaces.Box(0, 1, shape=(h * w * 2,), dtype=np.float32)
+        self.observation_space = gym.spaces.Box(0, 1, shape=(h * w * 2,), dtype=np.float32) # Contains placed blocks as image and reward placement as image
 
 
     def _refresh_actions(self):
