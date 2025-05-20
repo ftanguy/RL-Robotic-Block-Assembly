@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 # ---- project imports -------------------------------------------------------
 from assembly_env import AssemblyEnv
-from tasks import Bridge, Tower, DoubleBridge
+from tasks import Bridge, Tower, DoubleBridge, TripleBridge
 from utils.logger_utils import get_logger
 
 MAX_ACTIONS = 512 # Upper limit on the number of possible actions
@@ -122,7 +122,7 @@ class BlockAssemblyGym(gym.Env):
         h, w = self.backend.img_size
         
         self.observation_space = gym.spaces.Dict({
-            "images" : gym.spaces.Box(0, 1, shape=(2, h, w), dtype=np.float32),
+            "images" : gym.spaces.Box(0, 1, shape=(3, h, w), dtype=np.float32),
             "actions" : gym.spaces.Box(-2, 2, shape=(MAX_ACTIONS,ACTION_ENCODING), dtype=np.float32)
         })
   
@@ -144,9 +144,10 @@ class BlockAssemblyGym(gym.Env):
         return self._mask
 
     def _get_obs(self):
-        state_img  = self.backend.state_feature          # (1,64,64)
+        state_img  = self.backend.state_feature          # (1,64,64)    
         reward_img = self.backend.reward_feature.unsqueeze(0)  # (1,64,64)
-        images = torch.cat([state_img, reward_img], dim=0).float()  # (2,64,64)
+        obstacle_img = self.backend.obstacle_feature
+        images = torch.cat([state_img, reward_img, obstacle_img], dim=0).float()  # (2,64,64)
         self._refresh_actions()
         
         return {"images" : images,
@@ -155,7 +156,7 @@ class BlockAssemblyGym(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
-        self.task = self.make_task(self.task_name,np.random.randint(1,5))
+        self.task = self.make_task(self.task_name,np.random.randint(2,4))
         self.backend = AssemblyEnv(self.task, level=self.logger.level)
         self.backend.reset()
         obs = self._get_obs()
@@ -167,6 +168,7 @@ class BlockAssemblyGym(gym.Env):
         """
         action = self._action_list[index]
         obs, reward, terminated = self.backend.step(action)
+        self.logger.debug(f"Reward: {reward}")
         obs = self._get_obs()
 
         truncated = False  
@@ -177,35 +179,64 @@ class BlockAssemblyGym(gym.Env):
 
     def render(self):
         from rendering import plot_assembly_env
-        
+
         if self.fig is None:
-            self.fig, axd = plt.subplot_mosaic("ABC", figsize=(10, 4))
-            self.ax_geom, self.ax_state, self.ax_reward = axd["A"], axd["B"], axd["C"]
+            self.fig, axes = plt.subplot_mosaic(
+                """
+                AB
+                CD
+                """,
+                figsize=(10, 8),
+            )
+            self.ax_geom      = axes["A"]
+            self.ax_state     = axes["B"]
+            self.ax_reward    = axes["C"]
+            self.ax_obstacles = axes["D"]
 
             self.ax_geom.set_title("Assembly")
             self.ax_state.set_title("State")
             self.ax_reward.set_title("Reward")
+            self.ax_obstacles.set_title("Obstacles")
 
-            for ax in (self.ax_state, self.ax_reward):
-                ax.set_xticks([]); ax.set_yticks([])
+            # remove ticks on the heatmaps
+            for ax in (self.ax_state, self.ax_reward, self.ax_obstacles):
+                ax.set_xticks([])
+                ax.set_yticks([])
 
-            # --- create the image artists with correct 2‑D shape ----------
-            img0 = self.backend.state_feature.squeeze(0).numpy()   # (64,64)
-            self.img_state  = self.ax_state.imshow(
-                img0, cmap="gray", interpolation="none"
+            # --- create the image artists with correct shapes ----------
+            # state_feature is (1,H,W) → squeeze to (H,W)
+            img_state = self.backend.state_feature.squeeze(0).numpy()
+            self.img_state = self.ax_state.imshow(
+                img_state,
+                cmap="gray",
+                interpolation="none",
+                vmin=0.0, vmax=1.0,
             )
+
+            # reward_feature is (H,W)
             self.img_reward = self.ax_reward.imshow(
                 self.backend.reward_feature.numpy(),
-                cmap="viridis", interpolation="none"
+                cmap="viridis",
+                interpolation="none",
+            )
+
+            # obstacle_feature is (1,H,W) → squeeze to (H,W)
+            img_obs = self.backend.obstacle_feature.squeeze(0).numpy()
+            self.img_obstacles = self.ax_obstacles.imshow(
+                img_obs,
+                cmap="Reds",
+                interpolation="none",
+                vmin=0.0, vmax=1.0,
             )
 
         # -------- update each frame ---------------------------------------
         self.ax_geom.clear()
         plot_assembly_env(self.backend, fig=self.fig, ax=self.ax_geom, task=self.task)
 
-        # state feature: squeeze to 2‑D
+        # update the heatmaps:
         self.img_state.set_data(self.backend.state_feature.squeeze(0).numpy())
-        self.img_reward.set_data(self.backend.reward_feature.numpy())  
+        self.img_reward.set_data(self.backend.reward_feature.numpy())
+        self.img_obstacles.set_data(self.backend.obstacle_feature.squeeze(0).numpy())
 
         self.fig.canvas.draw_idle()
         plt.pause(0.001)
@@ -223,6 +254,9 @@ class BlockAssemblyGym(gym.Env):
             return Tower(targets)
         if name == "double_bridge":
             return DoubleBridge(num_stories=num_stories)
+        
+        if name == "triple_bridge":
+            return TripleBridge(num_stories=num_stories)
         raise ValueError(f"Unknown task '{name}'.")
     
     def print_available_actions(self):

@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field
 import numpy as np
+import random
 
 from blocks import Cube, Floor, Trapezoid
+
+from compas.geometry import Frame, Point
 
 
 
@@ -84,7 +87,7 @@ def Tower(targets, obstacles=None, name="Tower", floor_positions=None, shapes=No
     cube = Cube(receiving_faces=[2])
     targets = [(p, 0, h) for p, h in targets]
     if obstacles is not None:
-        obstacles = [Cube(location=(p, 0, h), scale=0.5) for p, h in obstacles]
+        obstacles = [Cube(location=(p, 0, h), scale=1.0) for p, h in obstacles]
     if shapes is None:
         shapes = [cube]
 
@@ -99,10 +102,10 @@ def Bridge(num_stories, width=1, floor_positions=None, shapes=None, name="Bridge
     
     H = 0.9
     targets = [(0, 0, num_stories * H + H/2)]
-    obstacles = [Cube(location=(targets[0][0], 0., i*H + H/2), scale=0.5) for i in range(num_stories) ]
+    obstacles = [Cube(location=(targets[0][0], 0., i*H + H/2), scale=1.0) for i in range(num_stories) ]
     for w in range(1, width):
-        obstacles += [Cube(location=(targets[0][0]-w, 0., i*H + H/2), scale=0.5) for i in range(num_stories) ]
-        obstacles += [Cube(location=(targets[0][0]+w, 0., i*H + H/2), scale=0.5) for i in range(num_stories) ]
+        obstacles += [Cube(location=(targets[0][0]-w, 0., i*H + H/2), scale=1.0) for i in range(num_stories) ]
+        obstacles += [Cube(location=(targets[0][0]+w, 0., i*H + H/2), scale=1.0) for i in range(num_stories) ]
     
     return Task(name=name, shapes=shapes, obstacles=obstacles, targets=targets, floor_positions=floor_positions)
 
@@ -119,10 +122,34 @@ def DoubleBridge(num_stories, with_top=False, shapes=None, floor_positions=None,
     targets = [ (-1 , 0, num_stories * H + H/2), (1 , 0, num_stories * H + H/2) ]
     obstacles = []
     for t in  targets:
-        obstacles += [Cube(location=(t[0], 0., i*H + H/2), scale=0.5) for i in range(num_stories) ]
+        obstacles += [Cube(location=(t[0], 0., i*H + H/2), scale=1.0) for i in range(num_stories) ]
 
     if with_top:
         targets.append((0, 0, (num_stories+2)*H + H/2))
         obstacles.append(Cube(location=(0, 0., (num_stories+1)*H + H/2), scale = 0.5))
         
     return Task(name=name, shapes=shapes, obstacles=obstacles, targets=targets, floor_positions=floor_positions)
+
+def TripleBridge(num_stories, with_top=False, shapes=None, floor_positions=None, name="DoubleBridge"):
+    if floor_positions is None:
+        floor_positions = [*range(-4, 5)]
+    if shapes is None:
+        trapezoid = Trapezoid() # Shape(urdf_file='shapes/trapezoid.urdf', name="trapezoid")
+        cube = Cube() # Shape(urdf_file='shapes/cube1.urdf', name="cube", receiving_faces_2d=[1], target_faces_2d=[2])
+        shapes = [trapezoid, cube]
+   
+    H = 0.9
+    center = random.randint(-3,4)
+    targets = [ (center-1 , 0, num_stories * H + H/2), (center +1 , 0, num_stories * H + H/2), (center , 0, num_stories * H + H/2 + 0.5) ]
+    obstacles = []
+    for t in  targets:
+        obstacles += [Cube(location=(t[0], 0., i*H + H/2), scale=1.0) for i in range(num_stories) ]
+
+    if with_top:
+        targets.append((0, 0, (num_stories+2)*H + H/2))
+        obstacles.append(Cube(location=(0, 0., (num_stories+1)*H + H/2), scale = 0.5))
+        
+    return Task(name=name, shapes=shapes, obstacles=obstacles, targets=targets, floor_positions=floor_positions)
+
+
+

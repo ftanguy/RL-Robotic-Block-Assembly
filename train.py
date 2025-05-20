@@ -112,7 +112,7 @@ def main():
 
 def create_parser():
     parser = argparse.ArgumentParser(description="Train Rl policy on block-assembly task (SB3)")
-    parser.add_argument("--task", choices=["bridge", "tower", "double_bridge"], default="bridge")
+    parser.add_argument("--task", default="bridge")
     parser.add_argument("--num-stories", type=int, default=2, help="difficulty setting for the chosen task")
     parser.add_argument("--timesteps", type=int, default=200_000)
     parser.add_argument("--save-freq", type=int, default=10_000, help="checkpoint frequency (steps)")

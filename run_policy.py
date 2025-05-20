@@ -118,7 +118,7 @@ def main():
 def parse_args():
     p = argparse.ArgumentParser(description="Run a trained block‑assembly policy")
     p.add_argument("--model", required=True, help="Path to saved .zip model")
-    p.add_argument("--task", choices=["bridge", "tower", "double_bridge"], default="bridge")
+    p.add_argument("--task", default="bridge")
     p.add_argument("--num-stories", type=int, default=2)
     p.add_argument("--device", default="auto")
     p.add_argument("--render", action="store_true", help="Render environment while running")

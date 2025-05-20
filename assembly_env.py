@@ -65,6 +65,7 @@ class AssemblyEnv(CRA_Assembly):
 
         C, H, W = 1, *self.img_size
         self.state_feature = torch.zeros((C, H, W))
+        self.obstacle_feature = torch.zeros((C, H, W))
 
 
     def reset(self, obstacles=None):
@@ -76,10 +77,25 @@ class AssemblyEnv(CRA_Assembly):
         self.state_feature = torch.zeros((C, H, W))   
         self.num_targets_reached = 0
         self.reward_feature = self.get_reward_features(sigma=0.5)
-        
+        self._compute_obstacle_feature()
+    
+    def _compute_obstacle_feature(self):
+        """
+        Render all the Task.obstacles into a single (1,H,W) image
+        """
+        C, H, W = 1, *self.img_size
+        feat = torch.zeros((C, H, W))
+        for obs in self.task.obstacles:
+            # render_block_2d returns a (H,W) tensor
+            img2d = render_block_2d(obs,
+                                    xlim=self.xlim,
+                                    zlim=self.zlim,
+                                    img_size=self.img_size)
+            feat += img2d.unsqueeze(0)      # (1,H,W)
+        # clamp so values stay in [0,1]
+        self.obstacle_feature = feat.clamp(0.0, 1.0)
 
     def get_reward_features(self, sigma=1):
-        self.logger.debug("Calculating reward features")
         reward_features = np.zeros(self.img_size)
         if len(self.task.targets) == 0:
             return torch.zeros(self.img_size)
@@ -140,12 +156,12 @@ class AssemblyEnv(CRA_Assembly):
         new_block = self.create_block(action)
         if self.collision(new_block):
             self.logger.debug("Collision")
-            return self.state_feature.clone(), torch.tensor(-0.0), True
+            return self.state_feature.clone(), torch.tensor(-1.0), True
         
         self.add_block(new_block)
         if not self.is_stable():
             self.logger.debug("Unstable")
-            return self.state_feature.clone(), torch.tensor(-0.0), True
+            return self.state_feature.clone(), torch.tensor(-1.0), True
         
         action_feature = render_block_2d(
             new_block, 
@@ -163,8 +179,10 @@ class AssemblyEnv(CRA_Assembly):
             if new_block.contains_2d(target):
                 self.num_targets_reached += 1
         
-        reward = torch.sum(action_feature * self.reward_feature, dim=(-1, -2)).flatten()[0]
+        reward = torch.sum(action_feature * self.reward_feature * 0.5, dim=(-1, -2)).flatten()[0]
         terminated = (len(self.block_list)-1 >= self.max_blocks) | self.num_targets_reached == len(self.task.targets)
+        if terminated and self.num_targets_reached == len(self.task.targets):
+            reward += +10.0 # Reached all objectives
         self.logger.debug(f"Is terminated {terminated}")
         
         return self.state_feature, reward, terminated
@@ -182,8 +200,6 @@ class AssemblyEnv(CRA_Assembly):
     def available_actions(self, floor_positions=None, num_block_offsets=1, overlap=0.2):
         floor_positions = floor_positions or self.task.floor_positions
         actions = []
-        #print("Num blocks:", len(self.block_list))
-        #print("Available actions being computed...")
         
         for i, block in enumerate(self.block_list):
             for target_face in block.receiving_faces_2d():
@@ -200,7 +216,14 @@ class AssemblyEnv(CRA_Assembly):
                             # print(f"Offsets: {offsets}")
                             
                         for offset_x in offsets:
-                            actions.append(Action(i, target_face, shape.block_id, face, offset_x))
+                            act = Action(i, target_face, shape.block_id, face, offset_x)
+
+                            tmp_block = self.create_block(act)
+
+                            if self.collision(tmp_block):
+                                continue
+
+                            actions.append(act)
         
         if len(actions) < 1 : self.logger.warning("No Action is available")
         return actions
