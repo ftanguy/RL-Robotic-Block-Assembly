@@ -1,18 +1,12 @@
-import gymnasium as gym
+import torch
+from Feature_extractor import FeatureExtractor
 
-from stable_baselines3 import A2C
-
-env = gym.make("CartPole-v1", render_mode="rgb_array")
-
-model = A2C("MlpPolicy", env, verbose=1)
-model.learn(total_timesteps=10_000)
-
-vec_env = model.get_env()
-obs = vec_env.reset()
-for i in range(1000):
-    action, _state = model.predict(obs, deterministic=True)
-    obs, reward, done, info = vec_env.step(action)
-    vec_env.render("human")
-    # VecEnv resets automatically
-    # if done:
-    #   obs = vec_env.reset()
+B, K = 8, 512
+dummy = {
+    "images" : torch.rand(B, 2, 64, 64),
+    "actions": torch.rand(B, K, 33)
+}
+net = FeatureExtractor()
+logits, value = net(dummy)
+print(logits.shape)   # torch.Size([8, 512])
+print(value.shape)    # torch.Size([8, 1])

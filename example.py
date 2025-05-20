@@ -14,16 +14,14 @@ rewards = 0
 
 while not done:
     action = env.random_action(non_colliding=True, stable=False)
-    if action is None:
-        break
     print(action)
+    print(env.encode_action(action))
+    print(env.encode_action(action).shape)
+
     obs, r, done = env.step(action)
-    print(f"obs: {obs}")
-    print(f"obs shape: {obs.size()}")
-    print(f"obs sum: {obs.sum()}")
+
     rewards += r
-    print(env.is_stable())
-    
+
 print(rewards)
 
 plot_assembly_env(env, task=task,plot_forces=False)

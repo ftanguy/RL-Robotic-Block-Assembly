@@ -6,6 +6,7 @@ Wrapps the AssemblyEnv in a gym interface so that it can be used with stable_bas
 import gymnasium as gym
 import numpy as np
 import torch
+import torch.nn as nn
 import logging
 
 import matplotlib.pyplot as plt
@@ -15,7 +16,87 @@ from assembly_env import AssemblyEnv
 from tasks import Bridge, Tower, DoubleBridge
 from utils.logger_utils import get_logger
 
-MAX_ACTIONS = 300 # Upper limit on the number of possible actions
+MAX_ACTIONS = 512 # Upper limit on the number of possible actions
+ACTION_ENCODING = 33 # Size of each action encoding
+
+from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
+from Feature_extractor import FeatureExtractor
+
+class BAActorCritic(MaskableActorCriticPolicy):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args,
+                         **kwargs,
+                         features_extractor_class = FeatureExtractor,
+                         features_extractor_kwargs = {},
+                         net_arch=[])      # we supply our own heads
+
+        self.action_net = nn.Identity()
+        self.value_net  = nn.Identity()
+
+        # Custom forward that simply delegates to the extractor
+    def forward(self, obs, deterministic: bool = False, action_masks=None):
+        """
+        :param obs: tensor dict from MaskablePPO
+        :param deterministic: bool
+        :param action_masks: np.ndarray | None  - shape (B, K)
+        """
+        # 1) FeatureExtractor gives us raw logits for *every* action row
+        logits, values = self.extract_features(obs)         # (B,K) , (B,1)
+
+        # 2) Build a categorical distribution
+        dist = self.action_dist.proba_distribution(action_logits=logits)
+
+        # 3) Apply masking (sets prob=0 for illegal rows)
+        if action_masks is not None:
+            dist.apply_masking(action_masks)
+
+        # 4) Sample or take arg-max
+        actions = dist.get_actions(deterministic=deterministic)   # (B,)
+
+        # 5) Log-probability of chosen actions
+        log_prob = dist.log_prob(actions)
+
+        return actions, values, log_prob
+    
+    def predict_values(self, obs):
+        """
+        Return V(s) given observations `obs`.
+        Called by MaskablePPO when computing returns.
+        """
+        _, values = self.features_extractor(obs)     # tuple -> take value head
+        return values                                # tensor (B,1)
+
+    def evaluate_actions(self, obs, actions, action_masks=None):
+        """
+        Return (value, log_prob, entropy) for the chosen `actions`.
+        """
+        logits, values = self.features_extractor(obs)        # (B,K) , (B,1)
+        dist = self.action_dist.proba_distribution(action_logits=logits)
+        if action_masks is not None:
+            dist.apply_masking(action_masks)
+
+        log_prob = dist.log_prob(actions)                    # (B,)
+        entropy  = dist.entropy()                            # (B,)
+        return values, log_prob, entropy
+
+    def get_distribution(self, obs, action_masks=None):
+        """
+        Build a `MaskedCategorical` from our per-candidate logits.
+        Called by predict(), _predict() and elsewhere.
+        """
+        logits, _ = self.features_extractor(obs)        # (B, K)
+        dist = self.action_dist.proba_distribution(action_logits=logits)
+        if action_masks is not None:
+            dist.apply_masking(action_masks)
+        return dist
+
+    def _predict(self, obs, deterministic: bool = False, action_masks=None):
+        """
+        Low-level helper used by predict() and evaluation code.
+        Must return *only* the chosen actions tensor.
+        """
+        dist = self.get_distribution(obs, action_masks)
+        return dist.get_actions(deterministic=deterministic)
 
 class BlockAssemblyGym(gym.Env):
 
@@ -33,50 +114,50 @@ class BlockAssemblyGym(gym.Env):
         self.render_enabled = render
         self.fig, self.ax = None, None
 
-        self._actions = [None] * self.max_actions
-        self._mask = np.zeros(self.max_actions, dtype=bool)
+        self._actions_encoding = np.zeros((MAX_ACTIONS,ACTION_ENCODING), dtype=np.float32)
+        self._action_list = []
+        self._mask = np.zeros(MAX_ACTIONS, dtype=np.float32)
         self.action_space = gym.spaces.Discrete(self.max_actions)
 
         h, w = self.backend.img_size
-        self.observation_space = gym.spaces.Box(0, 1, shape=(h * w * 2,), dtype=np.float32) # Contains placed blocks as image and reward placement as image
-
-
+        
+        self.observation_space = gym.spaces.Dict({
+            "images" : gym.spaces.Box(0, 1, shape=(2, h, w), dtype=np.float32),
+            "actions" : gym.spaces.Box(-2, 2, shape=(MAX_ACTIONS,ACTION_ENCODING), dtype=np.float32)
+        })
+  
     def _refresh_actions(self):
         acts = self.backend.available_actions(num_block_offsets=self.num_block_offsets)
+        self._action_list = acts
 
-        if not acts:
-            self.logger.error("Empty action list at step %d\nBlocks: %s",
-                            self.backend.step_count,
-                            [b.name for b in self.backend.block_list])
+        self._actions_encoding = np.zeros((MAX_ACTIONS,ACTION_ENCODING), dtype=np.float32)
+        self._mask = np.zeros(MAX_ACTIONS, dtype=np.float32)
 
-        if len(acts) > self.max_actions:
-            raise ValueError(f"Too many actions ({len(acts)}) for max_actions ({self.max_actions}).")
+        for i, action in enumerate(acts):
+            vec = self.backend.encode_action(action)
 
-        # pad to fixed size
-        self._actions = acts + [None] * (self.max_actions - len(acts))
-        self._mask[: len(acts)] = True
-        self._mask[len(acts) :] = False
-        self._mask[self.max_actions - 1] = True 
+            self._actions_encoding[i] = vec
+            self._mask[i] = 1
+
 
     def action_masks(self):
-        return self.get_action_mask()
-
-    def get_action_mask(self):
-        if not self._mask.any() : 
-            self.logger.debug("Empty Mask")
         return self._mask
 
     def _get_obs(self):
-        img_flat   = self.backend.state_feature.flatten()
-        goal_flat  = self.backend.reward_feature.flatten()
-        return torch.cat([img_flat, goal_flat]).numpy().astype(np.float32)
+        state_img  = self.backend.state_feature          # (1,64,64)
+        reward_img = self.backend.reward_feature.unsqueeze(0)  # (1,64,64)
+        images = torch.cat([state_img, reward_img], dim=0).float()  # (2,64,64)
+        self._refresh_actions()
+        
+        return {"images" : images,
+                "actions" : self._actions_encoding
+                }
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self.task = self.make_task(self.task_name,np.random.randint(1,5))
         self.backend = AssemblyEnv(self.task, level=self.logger.level)
         self.backend.reset()
-        self._refresh_actions()
         obs = self._get_obs()
         return obs, {}
 
@@ -84,28 +165,9 @@ class BlockAssemblyGym(gym.Env):
         """
         Returns: obs, reward, terminted, truncated, info
         """
-        
-        if index == (self.max_actions - 1):
-            self.logger.debug("Noop chosen - ending episode")
-            obs = self._get_obs()
-            self._refresh_actions()
-            return obs, 0.0, True, False, {}   # terminate with zero reward
-
-        if not self._mask[index]:
-            obs = self._get_obs()
-            self._refresh_actions()
-            self.logger.warning("Invalid action choice")
-            return obs, -1.0, False, False, {}
-        
-        if self._actions is None:
-            obs = self._get_obs()
-            self.logger.warning("No action available")
-            return obs, 0.0, True, False, {}
-
-        action = self._actions[index]
+        action = self._action_list[index]
         obs, reward, terminated = self.backend.step(action)
         obs = self._get_obs()
-        self._refresh_actions()
 
         truncated = False  
 
@@ -149,7 +211,6 @@ class BlockAssemblyGym(gym.Env):
         plt.pause(0.001)
 
 
-
     def close(self):
         pass
 
@@ -171,9 +232,3 @@ class BlockAssemblyGym(gym.Env):
             print(f"[{i:03}] target_block={a.target_block}, "
                 f"target_face={a.target_face}, shape={a.shape}, "
                 f"face={a.face}, offset_x={a.offset_x}")
-        
-    def get_action_by_index(self, actions, index):
-        """Returns the action at the given index, or raises IndexError."""
-        if 0 <= index < len(actions):
-            return actions[index]
-        raise IndexError(f"Index {index} out of bounds (len={len(actions)})")

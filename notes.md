@@ -1,0 +1,1 @@
+Obstacles : [Block Cube(1, 1) (None), Block Cube(1, 1) (None), Block Cube(1, 1) (None), Block Cube(1, 1) (None)]

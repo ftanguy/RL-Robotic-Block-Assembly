@@ -20,11 +20,7 @@ from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 # ---- project imports -------------------------------------------------------
 from assembly_gym import BlockAssemblyGym
 from utils.logger_utils import get_logger
-
-ALGOS = {
-    "maskppo": MaskablePPO,
-    "ppo": PPO,
-}
+from assembly_gym import BAActorCritic
 
 def load_hyperparams(path):
     if not path:
@@ -56,10 +52,13 @@ def main():
 
     # Make save directory
     run_name = datetime.datetime.now().strftime("%m%d%H%M%S")
-    run_dir = Path(args.logdir) / f"{args.task}_{args.algo}_{run_name}"
+    run_dir = Path(args.logdir) / f"{args.task}_{run_name}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Run Directory {run_dir}")
+
+    def mask_fn(env):                 
+        return env.action_masks()
 
     def make_env(rank: int):
         "Factory needed by VecEnv constructors"
@@ -69,6 +68,7 @@ def main():
                 render=args.render and args.n_envs == 1,  # only render when 1 env
                 level=level,
             )
+            env = ActionMasker(env, mask_fn)  
             return Monitor(env)
         return _init
 
@@ -80,7 +80,7 @@ def main():
         env = SubprocVecEnv(env_fns, start_method="spawn")
 
 
-    Algo = ALGOS[args.algo]
+    Algo = MaskablePPO
     if args.resume_model:
         logger.info(f"Resuming from {args.resume_model}")
         model = Algo.load(
@@ -88,10 +88,9 @@ def main():
             env=env,                       
             device=args.device,
         )
-        # keep original tensorboard path if you want continuity
-        #model.set_tensorboard_log(str(run_dir / "tb"))
     else:
         model = Algo(
+            policy       = BAActorCritic,
             env=env,
             tensorboard_log=str(run_dir / "tb"),
             device=args.device,
@@ -100,14 +99,11 @@ def main():
         )
 
     chk_callback = CheckpointCallback(save_freq=args.save_freq, save_path=run_dir / "checkpoints", name_prefix="rl_model")
-    eval_env = DummyVecEnv([make_env(0)])
-    if args.algo == "maskppo":
-        eval_callback = MaskableEvalCallback(eval_env, best_model_save_path=run_dir / "best_model", eval_freq=args.save_freq,
-                                    log_path=run_dir / "eval_logs", deterministic=True, render=False)
-    else :
-        eval_callback = EvalCallback(eval_env, best_model_save_path=run_dir / "best_model", eval_freq=args.save_freq,
-                                    log_path=run_dir / "eval_logs", deterministic=True, render=False)
-    
+    eval_env = DummyVecEnv([lambda: ActionMasker(BlockAssemblyGym(args.task, level=level), mask_fn)])
+
+    eval_callback = MaskableEvalCallback(eval_env, best_model_save_path=run_dir / "best_model", eval_freq=args.save_freq,
+                                log_path=run_dir / "eval_logs", deterministic=True, render=False)
+
     model.learn(total_timesteps=args.timesteps, callback=[chk_callback, eval_callback],progress_bar=args.progress_bar)
 
     model.save(run_dir / "final_model")
@@ -118,7 +114,6 @@ def create_parser():
     parser = argparse.ArgumentParser(description="Train Rl policy on block-assembly task (SB3)")
     parser.add_argument("--task", choices=["bridge", "tower", "double_bridge"], default="bridge")
     parser.add_argument("--num-stories", type=int, default=2, help="difficulty setting for the chosen task")
-    parser.add_argument("--algo", choices=list(ALGOS.keys()), default="maskppo")
     parser.add_argument("--timesteps", type=int, default=200_000)
     parser.add_argument("--save-freq", type=int, default=10_000, help="checkpoint frequency (steps)")
     parser.add_argument("--logdir", default="runs", help="output directory")

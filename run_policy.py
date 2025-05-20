@@ -22,13 +22,9 @@ from sb3_contrib.common.wrappers import ActionMasker
 # ------------------------------------------------------------------------
 # project imports (same as train.py)
 # ------------------------------------------------------------------------
-from assembly_gym import BlockAssemblyGym
+from assembly_gym import BlockAssemblyGym, BAActorCritic
 from utils.logger_utils import get_logger
 
-ALGOS = {
-    "ppo": PPO,
-    "maskppo": MaskablePPO,
-}
 
 def _capture_figure(fig):
     fig.canvas.draw()                                    
@@ -63,15 +59,17 @@ def main():
                                 level=level,
                                 render=args.render)
 
-    if args.algo == "maskppo":
-        env = ActionMasker(base_env, lambda e: e.get_action_mask())
-    else:
-        env = base_env
+
+    def mask_fn(e):
+        return e.action_masks()
+
+    env = ActionMasker(base_env, mask_fn)
+
 
     # Load SB3 model
-    Algo = ALGOS[args.algo]
+    Algo = MaskablePPO
     logger.info(f"Loading model from {args.model}")
-    model = Algo.load(args.model, device=args.device)
+    model = Algo.load(args.model, device=args.device, custom_objects={"policy": BAActorCritic})
 
     # GIF recording
     record_gif: bool = bool(args.gif)
@@ -92,11 +90,10 @@ def main():
 
         # Rollout one ep
         while not (done or truncated):
-            if args.algo == "maskppo":
-                action_masks = env.action_masks()
-                action, _ = model.predict(obs, deterministic=False, action_masks=action_masks)
-            else:
-                action, _ = model.predict(obs, deterministic=True)
+
+            action_masks = env.action_masks()
+            action, _ = model.predict(obs, deterministic=False, action_masks=action_masks)
+
 
             obs, reward, done, truncated, _info = env.step(action)
             total_reward += reward
@@ -123,7 +120,6 @@ def parse_args():
     p.add_argument("--model", required=True, help="Path to saved .zip model")
     p.add_argument("--task", choices=["bridge", "tower", "double_bridge"], default="bridge")
     p.add_argument("--num-stories", type=int, default=2)
-    p.add_argument("--algo", choices=list(ALGOS.keys()), default="maskppo")
     p.add_argument("--device", default="auto")
     p.add_argument("--render", action="store_true", help="Render environment while running")
     p.add_argument("--seed", type=int, default=None)

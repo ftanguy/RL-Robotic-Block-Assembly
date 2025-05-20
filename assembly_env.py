@@ -38,6 +38,9 @@ def gaussian(loc, xlim, zlim, img_size=(512,512), sigma=2):
     X, Y = np.meshgrid(np.linspace(*xlim, img_size[0]), np.linspace(zlim[1], zlim[0], img_size[1]))
     return np.exp(-((X - x)**2 + (Y - y)**2) / (2*sigma**2)).reshape(img_size)
 
+def one_hot(idx : int, size :int):
+    return np.eye(size, dtype=np.float32)[idx]
+
 class AssemblyEnv(CRA_Assembly):
 
     def __init__(self, task, max_blocks=10, xlim=(-5, 5), zlim=(0, 10), img_size=(64, 64), mu=0.8, density=1.0, level = logging.INFO):
@@ -60,7 +63,8 @@ class AssemblyEnv(CRA_Assembly):
         
         self.reward_feature = self.get_reward_features(sigma=0.5)
 
-        self.state_feature = torch.zeros(self.img_size)
+        C, H, W = 1, *self.img_size
+        self.state_feature = torch.zeros((C, H, W))
 
 
     def reset(self, obstacles=None):
@@ -68,7 +72,8 @@ class AssemblyEnv(CRA_Assembly):
         self.block_list = []
         self.obstacles = []
         self.add_block(Floor(xlim=self.xlim))
-        self.state_feature = torch.zeros(self.img_size)  # Reset image
+        C, H, W = 1, *self.img_size     
+        self.state_feature = torch.zeros((C, H, W))   
         self.num_targets_reached = 0
         self.reward_feature = self.get_reward_features(sigma=0.5)
         
@@ -167,6 +172,13 @@ class AssemblyEnv(CRA_Assembly):
     def collision(self, new_block):
         return any(new_block.intersects_2d(b) for b in self.block_list + self.task.obstacles)
     
+    def encode_action(self, action : Action): 
+        return np.concatenate([one_hot(action.target_block,self.max_blocks),
+                              one_hot(action.target_face,6),
+                              one_hot(action.shape, 10),
+                              one_hot(action.face, 6),
+                              np.array([action.offset_x], dtype=np.float32)])
+
     def available_actions(self, floor_positions=None, num_block_offsets=1, overlap=0.2):
         floor_positions = floor_positions or self.task.floor_positions
         actions = []
