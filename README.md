@@ -96,21 +96,5 @@ Here is an example of a rollout
 
 Other SB3 algorithms (SAC, A2C…) will work, but the policy network must be adapted to flat image inputs.
 
----
-
-## Things to maybe change/Improve
-- Change the observations to include obstacles (maybe change the rl network to cnn and have 3 channels (obstacles,placed blocks,reward features))
-- Change how the agent interacts with the actions (right now it choose an index in the list of possible actions but it doesnt now what the effect will be/what it is choosing) -> maybe make an action encoder? Or add action to observation space?
-
-## Project Ideas to implement (at least 1)
-
-- The policy should generate various kind of possible structures for a same task
-- The policy should be able to complete an episode starting from some arbitrary/random situation not seen during training.
-- Generate some interesting and novel structures
-- Minimise the number of blocks used by the policy to complete the episode
-- Use new types of block geometries
-- Train a policy that is robust to noise injected when placing a block (important for sim2real transition to a real robot).
-
----
 
 
