@@ -23,7 +23,8 @@ We also extended the baseline environment to remove collision-inducing actions b
 
 ```bash
 # create the Conda environment 
-$conda env create -f block_rl_env.yml$ conda activate block_rl
+conda env create -f block_rl_env.yml
+conda activate block_rl
 
 # Stable‑Baselines3 extras: usefull to have the training progress bar.
 $ pip install stable-baselines3\[extra\]
