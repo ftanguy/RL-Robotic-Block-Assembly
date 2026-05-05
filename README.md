@@ -124,4 +124,3 @@ Other SB3 algorithms (SAC, A2C…) will work, but the policy network must be ada
 * Florian Tanguy
 * Renqing Cuomao
 * Alix Papadatos
-```
