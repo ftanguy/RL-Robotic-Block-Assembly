@@ -1,6 +1,3 @@
-
-
-```markdown
 # RL Target-Driven Block Assembly
 
 ## Project Overview & Results
